@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/rest/internal/errcode"
+	"github.com/zeromicro/go-zero/rest/internal/header"
 )
 
 var (
@@ -22,9 +24,14 @@ func Error(w http.ResponseWriter, err error, fns ...func(w http.ResponseWriter, 
 	if handler == nil {
 		if len(fns) > 0 {
 			fns[0](w, err)
+		} else if errcode.IsGrpcError(err) {
+			// don't unwrap error and get status.Message(),
+			// it hides the rpc error headers.
+			http.Error(w, err.Error(), errcode.CodeFromGrpcError(err))
 		} else {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		}
+
 		return
 	}
 
@@ -61,12 +68,16 @@ func SetErrorHandler(handler func(error) (int, interface{})) {
 
 // WriteJson writes v as json string into w with code.
 func WriteJson(w http.ResponseWriter, code int, v interface{}) {
-	w.Header().Set(ContentType, ApplicationJson)
+	bs, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set(ContentType, header.JsonContentType)
 	w.WriteHeader(code)
 
-	if bs, err := json.Marshal(v); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	} else if n, err := w.Write(bs); err != nil {
+	if n, err := w.Write(bs); err != nil {
 		// http.ErrHandlerTimeout has been handled by http.TimeoutHandler,
 		// so it's ignored here.
 		if err != http.ErrHandlerTimeout {

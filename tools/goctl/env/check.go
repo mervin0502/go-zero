@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/urfave/cli"
+	"github.com/spf13/cobra"
 	"github.com/zeromicro/go-zero/tools/goctl/pkg/env"
 	"github.com/zeromicro/go-zero/tools/goctl/pkg/protoc"
 	"github.com/zeromicro/go-zero/tools/goctl/pkg/protocgengo"
@@ -37,24 +37,23 @@ var bins = []bin{
 	},
 }
 
-func Check(ctx *cli.Context) error {
-	install := ctx.Bool("install")
-	force := ctx.Bool("force")
-	return Prepare(install, force)
+func check(_ *cobra.Command, _ []string) error {
+	return Prepare(boolVarInstall, boolVarForce, boolVarVerbose)
 }
 
-func Prepare(install, force bool) error {
+func Prepare(install, force, verbose bool) error {
+	log := console.NewColorConsole(verbose)
 	pending := true
-	console.Info("[goctl-env]: preparing to check env")
+	log.Info("[goctl-env]: preparing to check env")
 	defer func() {
 		if p := recover(); p != nil {
-			console.Error("%+v", p)
+			log.Error("%+v", p)
 			return
 		}
 		if pending {
-			console.Success("\n[goctl-env]: congratulations! your goctl environment is ready!")
+			log.Success("\n[goctl-env]: congratulations! your goctl environment is ready!")
 		} else {
-			console.Error(`
+			log.Error(`
 [goctl-env]: check env finish, some dependencies is not found in PATH, you can execute
 command 'goctl env check --install' to install it, for details, please execute command 
 'goctl env check --help'`)
@@ -62,22 +61,22 @@ command 'goctl env check --install' to install it, for details, please execute c
 	}()
 	for _, e := range bins {
 		time.Sleep(200 * time.Millisecond)
-		console.Info("")
-		console.Info("[goctl-env]: looking up %q", e.name)
+		log.Info("")
+		log.Info("[goctl-env]: looking up %q", e.name)
 		if e.exists {
-			console.Success("[goctl-env]: %q is installed", e.name)
+			log.Success("[goctl-env]: %q is installed", e.name)
 			continue
 		}
-		console.Warning("[goctl-env]: %q is not found in PATH", e.name)
+		log.Warning("[goctl-env]: %q is not found in PATH", e.name)
 		if install {
 			install := func() {
-				console.Info("[goctl-env]: preparing to install %q", e.name)
+				log.Info("[goctl-env]: preparing to install %q", e.name)
 				path, err := e.get(env.Get(env.GoctlCache))
 				if err != nil {
-					console.Error("[goctl-env]: an error interrupted the installation: %+v", err)
+					log.Error("[goctl-env]: an error interrupted the installation: %+v", err)
 					pending = false
 				} else {
-					console.Success("[goctl-env]: %q is already installed in %q", e.name, path)
+					log.Success("[goctl-env]: %q is already installed in %q", e.name, path)
 				}
 			}
 			if force {

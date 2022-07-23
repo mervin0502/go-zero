@@ -2,6 +2,7 @@ package docgen
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"html/template"
 	"strconv"
@@ -13,27 +14,14 @@ import (
 	"github.com/zeromicro/go-zero/tools/goctl/api/util"
 )
 
-const (
-	markdownTemplate = `
-### {{.index}}. {{.routeComment}}
-
-1. 路由定义
-
-- Url: {{.uri}}
-- Method: {{.method}}
-- Request: {{.requestType}}
-- Response: {{.responseType}}
-
-2. 请求定义
-{{.requestContent}}
-
-3. 返回定义
-{{.responseContent}}  
-
-`
-)
+//go:embed markdown.tpl
+var markdownTemplate string
 
 func genDoc(api *spec.ApiSpec, dir, filename string) error {
+	if len(api.Service.Routes()) == 0 {
+		return nil
+	}
+
 	fp, _, err := util.MaybeCreateFile(dir, "", filename)
 	if err != nil {
 		return err
@@ -75,6 +63,7 @@ func genDoc(api *spec.ApiSpec, dir, filename string) error {
 
 		builder.Write(tmplBytes.Bytes())
 	}
+
 	_, err = fp.WriteString(strings.Replace(builder.String(), "&#34;", `"`, -1))
 	return err
 }

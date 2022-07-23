@@ -198,6 +198,49 @@ func TestUnmarshalIntWithDefault(t *testing.T) {
 	assert.Equal(t, 1, in.Int)
 }
 
+func TestUnmarshalBoolSliceRequired(t *testing.T) {
+	type inner struct {
+		Bools []bool `key:"bools"`
+	}
+
+	var in inner
+	assert.NotNil(t, UnmarshalKey(map[string]interface{}{}, &in))
+}
+
+func TestUnmarshalBoolSliceNil(t *testing.T) {
+	type inner struct {
+		Bools []bool `key:"bools,optional"`
+	}
+
+	var in inner
+	assert.Nil(t, UnmarshalKey(map[string]interface{}{}, &in))
+	assert.Nil(t, in.Bools)
+}
+
+func TestUnmarshalBoolSliceNilExplicit(t *testing.T) {
+	type inner struct {
+		Bools []bool `key:"bools,optional"`
+	}
+
+	var in inner
+	assert.Nil(t, UnmarshalKey(map[string]interface{}{
+		"bools": nil,
+	}, &in))
+	assert.Nil(t, in.Bools)
+}
+
+func TestUnmarshalBoolSliceEmpty(t *testing.T) {
+	type inner struct {
+		Bools []bool `key:"bools,optional"`
+	}
+
+	var in inner
+	assert.Nil(t, UnmarshalKey(map[string]interface{}{
+		"bools": []bool{},
+	}, &in))
+	assert.Empty(t, in.Bools)
+}
+
 func TestUnmarshalBoolSliceWithDefault(t *testing.T) {
 	type inner struct {
 		Bools []bool `key:"bools,default=[true,false]"`
@@ -330,28 +373,34 @@ func TestUnmarshalFloat(t *testing.T) {
 
 func TestUnmarshalInt64Slice(t *testing.T) {
 	var v struct {
-		Ages []int64 `key:"ages"`
+		Ages  []int64 `key:"ages"`
+		Slice []int64 `key:"slice"`
 	}
 	m := map[string]interface{}{
-		"ages": []int64{1, 2},
+		"ages":  []int64{1, 2},
+		"slice": []interface{}{},
 	}
 
 	ast := assert.New(t)
 	ast.Nil(UnmarshalKey(m, &v))
 	ast.ElementsMatch([]int64{1, 2}, v.Ages)
+	ast.Equal([]int64{}, v.Slice)
 }
 
 func TestUnmarshalIntSlice(t *testing.T) {
 	var v struct {
-		Ages []int `key:"ages"`
+		Ages  []int `key:"ages"`
+		Slice []int `key:"slice"`
 	}
 	m := map[string]interface{}{
-		"ages": []int{1, 2},
+		"ages":  []int{1, 2},
+		"slice": []interface{}{},
 	}
 
 	ast := assert.New(t)
 	ast.Nil(UnmarshalKey(m, &v))
 	ast.ElementsMatch([]int{1, 2}, v.Ages)
+	ast.Equal([]int{}, v.Slice)
 }
 
 func TestUnmarshalString(t *testing.T) {
@@ -938,6 +987,43 @@ func TestUnmarshalWithStringOptionsCorrect(t *testing.T) {
 	ast.Equal("2", in.Correct)
 }
 
+func TestUnmarshalOptionsOptional(t *testing.T) {
+	type inner struct {
+		Value         string `key:"value,options=first|second,optional"`
+		OptionalValue string `key:"optional_value,options=first|second,optional"`
+		Foo           string `key:"foo,options=[bar,baz]"`
+		Correct       string `key:"correct,options=1|2"`
+	}
+	m := map[string]interface{}{
+		"value":   "first",
+		"foo":     "bar",
+		"correct": "2",
+	}
+
+	var in inner
+	ast := assert.New(t)
+	ast.Nil(UnmarshalKey(m, &in))
+	ast.Equal("first", in.Value)
+	ast.Equal("", in.OptionalValue)
+	ast.Equal("bar", in.Foo)
+	ast.Equal("2", in.Correct)
+}
+
+func TestUnmarshalOptionsOptionalWrongValue(t *testing.T) {
+	type inner struct {
+		Value         string `key:"value,options=first|second,optional"`
+		OptionalValue string `key:"optional_value,options=first|second,optional"`
+		WrongValue    string `key:"wrong_value,options=first|second,optional"`
+	}
+	m := map[string]interface{}{
+		"value":       "first",
+		"wrong_value": "third",
+	}
+
+	var in inner
+	assert.NotNil(t, UnmarshalKey(m, &in))
+}
+
 func TestUnmarshalStringOptionsWithStringOptionsNotString(t *testing.T) {
 	type inner struct {
 		Value   string `key:"value,options=first|second"`
@@ -1082,6 +1168,28 @@ func TestUnmarshalWithIntOptionsIncorrect(t *testing.T) {
 
 	var in inner
 	assert.NotNil(t, UnmarshalKey(m, &in))
+}
+
+func TestUnmarshalWithJsonNumberOptionsIncorrect(t *testing.T) {
+	type inner struct {
+		Value     string `key:"value,options=first|second"`
+		Incorrect int    `key:"incorrect,options=1|2"`
+	}
+	m := map[string]interface{}{
+		"value":     "first",
+		"incorrect": json.Number("3"),
+	}
+
+	var in inner
+	assert.NotNil(t, UnmarshalKey(m, &in))
+}
+
+func TestUnmarshaler_UnmarshalIntOptions(t *testing.T) {
+	var val struct {
+		Sex int `json:"sex,options=0|1"`
+	}
+	input := []byte(`{"sex": 2}`)
+	assert.NotNil(t, UnmarshalJsonBytes(input, &val))
 }
 
 func TestUnmarshalWithUintOptionsCorrect(t *testing.T) {
@@ -2573,7 +2681,7 @@ func TestUnmarshalJsonReaderMultiArray(t *testing.T) {
 	assert.Equal(t, 2, len(res.B))
 }
 
-func TestUnmarshalJsonReaderPtrMultiArray(t *testing.T) {
+func TestUnmarshalJsonReaderPtrMultiArrayString(t *testing.T) {
 	payload := `{"a": "133", "b": [["add", "cccd"], ["eeee"]]}`
 	var res struct {
 		A string      `json:"a"`
@@ -2586,8 +2694,58 @@ func TestUnmarshalJsonReaderPtrMultiArray(t *testing.T) {
 	assert.Equal(t, 2, len(res.B[0]))
 }
 
+func TestUnmarshalJsonReaderPtrMultiArrayString_Int(t *testing.T) {
+	payload := `{"a": "133", "b": [[11, 22], [33]]}`
+	var res struct {
+		A string      `json:"a"`
+		B [][]*string `json:"b"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.Nil(t, err)
+	assert.Equal(t, 2, len(res.B))
+	assert.Equal(t, 2, len(res.B[0]))
+}
+
+func TestUnmarshalJsonReaderPtrMultiArrayInt(t *testing.T) {
+	payload := `{"a": "133", "b": [[11, 22], [33]]}`
+	var res struct {
+		A string   `json:"a"`
+		B [][]*int `json:"b"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.Nil(t, err)
+	assert.Equal(t, 2, len(res.B))
+	assert.Equal(t, 2, len(res.B[0]))
+}
+
 func TestUnmarshalJsonReaderPtrArray(t *testing.T) {
 	payload := `{"a": "133", "b": ["add", "cccd", "eeee"]}`
+	var res struct {
+		A string    `json:"a"`
+		B []*string `json:"b"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.Nil(t, err)
+	assert.Equal(t, 3, len(res.B))
+}
+
+func TestUnmarshalJsonReaderPtrArray_Int(t *testing.T) {
+	payload := `{"a": "133", "b": [11, 22, 33]}`
+	var res struct {
+		A string    `json:"a"`
+		B []*string `json:"b"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.Nil(t, err)
+	assert.Equal(t, 3, len(res.B))
+}
+
+func TestUnmarshalJsonReaderPtrInt(t *testing.T) {
+	payload := `{"a": "133", "b": [11, 22, 33]}`
 	var res struct {
 		A string    `json:"a"`
 		B []*string `json:"b"`
@@ -2609,6 +2767,116 @@ func TestUnmarshalJsonWithoutKey(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, "1", res.A)
 	assert.Equal(t, "2", res.B)
+}
+
+func TestUnmarshalJsonUintNegative(t *testing.T) {
+	payload := `{"a": -1}`
+	var res struct {
+		A uint `json:"a"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.NotNil(t, err)
+}
+
+func TestUnmarshalJsonDefinedInt(t *testing.T) {
+	type Int int
+	var res struct {
+		A Int `json:"a"`
+	}
+	payload := `{"a": -1}`
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.Nil(t, err)
+	assert.Equal(t, Int(-1), res.A)
+}
+
+func TestUnmarshalJsonDefinedString(t *testing.T) {
+	type String string
+	var res struct {
+		A String `json:"a"`
+	}
+	payload := `{"a": "foo"}`
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.Nil(t, err)
+	assert.Equal(t, String("foo"), res.A)
+}
+
+func TestUnmarshalJsonDefinedStringPtr(t *testing.T) {
+	type String string
+	var res struct {
+		A *String `json:"a"`
+	}
+	payload := `{"a": "foo"}`
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.Nil(t, err)
+	assert.Equal(t, String("foo"), *res.A)
+}
+
+func TestUnmarshalJsonReaderComplex(t *testing.T) {
+	type (
+		MyInt      int
+		MyTxt      string
+		MyTxtArray []string
+
+		Req struct {
+			MyInt      MyInt      `json:"my_int"` // int.. ok
+			MyTxtArray MyTxtArray `json:"my_txt_array"`
+			MyTxt      MyTxt      `json:"my_txt"` // but string is not assignable
+			Int        int        `json:"int"`
+			Txt        string     `json:"txt"`
+		}
+	)
+	body := `{
+  "my_int": 100,
+  "my_txt_array": [
+    "a",
+    "b"
+  ],
+  "my_txt": "my_txt",
+  "int": 200,
+  "txt": "txt"
+}`
+	var req Req
+	err := UnmarshalJsonReader(strings.NewReader(body), &req)
+	assert.Nil(t, err)
+	assert.Equal(t, MyInt(100), req.MyInt)
+	assert.Equal(t, MyTxt("my_txt"), req.MyTxt)
+	assert.EqualValues(t, MyTxtArray([]string{"a", "b"}), req.MyTxtArray)
+	assert.Equal(t, 200, req.Int)
+	assert.Equal(t, "txt", req.Txt)
+}
+
+func TestUnmarshalJsonReaderArrayBool(t *testing.T) {
+	payload := `{"id": false}`
+	var res struct {
+		ID []string `json:"id"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.NotNil(t, err)
+}
+
+func TestUnmarshalJsonReaderArrayInt(t *testing.T) {
+	payload := `{"id": 123}`
+	var res struct {
+		ID []string `json:"id"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.NotNil(t, err)
+}
+
+func TestUnmarshalJsonReaderArrayString(t *testing.T) {
+	payload := `{"id": "123"}`
+	var res struct {
+		ID []string `json:"id"`
+	}
+	reader := strings.NewReader(payload)
+	err := UnmarshalJsonReader(reader, &res)
+	assert.NotNil(t, err)
 }
 
 func BenchmarkDefaultValue(b *testing.B) {

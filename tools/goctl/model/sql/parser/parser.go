@@ -11,7 +11,6 @@ import (
 	"github.com/zeromicro/go-zero/tools/goctl/model/sql/converter"
 	"github.com/zeromicro/go-zero/tools/goctl/model/sql/model"
 	"github.com/zeromicro/go-zero/tools/goctl/model/sql/util"
-	su "github.com/zeromicro/go-zero/tools/goctl/util"
 	"github.com/zeromicro/go-zero/tools/goctl/util/console"
 	"github.com/zeromicro/go-zero/tools/goctl/util/stringx"
 )
@@ -64,14 +63,12 @@ func parseNameOriginal(ts []*parser.Table) (nameOriginals [][]string) {
 // Parse parses ddl into golang structure
 func Parse(filename, database string) ([]*Table, error) {
 	p := parser.NewParser()
-	ts, err := p.From(filename)
+	tables, err := p.From(filename)
 	if err != nil {
 		return nil, err
 	}
 
-	nameOriginals := parseNameOriginal(ts)
-
-	tables := GetSafeTables(ts)
+	nameOriginals := parseNameOriginal(tables)
 	indexNameGen := func(column ...string) string {
 		return strings.Join(column, "_")
 	}
@@ -79,14 +76,12 @@ func Parse(filename, database string) ([]*Table, error) {
 	prefix := filepath.Base(filename)
 	var list []*Table
 	for indexTable, e := range tables {
-		columns := e.Columns
-
 		var (
+			primaryColumn    string
 			primaryColumnSet = collection.NewSet()
-
-			primaryColumn string
-			uniqueKeyMap  = make(map[string][]string)
-			normalKeyMap  = make(map[string][]string)
+			uniqueKeyMap     = make(map[string][]string)
+			normalKeyMap     = make(map[string][]string)
+			columns          = e.Columns
 		)
 
 		for _, column := range columns {
@@ -224,7 +219,7 @@ func convertColumns(columns []*parser.Column, primaryColumn string) (Primary, ma
 			}
 		}
 
-		dataType, err := converter.ConvertDataType(column.DataType.Type(), isDefaultNull)
+		dataType, err := converter.ConvertDataType(column.DataType.Type(), isDefaultNull, column.DataType.Unsigned())
 		if err != nil {
 			return Primary{}, nil, err
 		}
@@ -271,7 +266,8 @@ func (t *Table) ContainsTime() bool {
 // ConvertDataType converts mysql data type into golang data type
 func ConvertDataType(table *model.Table) (*Table, error) {
 	isPrimaryDefaultNull := table.PrimaryKey.ColumnDefault == nil && table.PrimaryKey.IsNullAble == "YES"
-	primaryDataType, err := converter.ConvertStringDataType(table.PrimaryKey.DataType, isPrimaryDefaultNull)
+	isPrimaryUnsigned := strings.Contains(table.PrimaryKey.DbColumn.ColumnType, "unsigned")
+	primaryDataType, err := converter.ConvertStringDataType(table.PrimaryKey.DataType, isPrimaryDefaultNull, isPrimaryUnsigned)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +346,8 @@ func getTableFields(table *model.Table) (map[string]*Field, error) {
 	fieldM := make(map[string]*Field)
 	for _, each := range table.Columns {
 		isDefaultNull := each.ColumnDefault == nil && each.IsNullAble == "YES"
-		dt, err := converter.ConvertStringDataType(each.DataType, isDefaultNull)
+		isPrimaryUnsigned := strings.Contains(each.ColumnType, "unsigned")
+		dt, err := converter.ConvertStringDataType(each.DataType, isDefaultNull, isPrimaryUnsigned)
 		if err != nil {
 			return nil, err
 		}
@@ -370,36 +367,4 @@ func getTableFields(table *model.Table) (map[string]*Field, error) {
 		fieldM[each.Name] = field
 	}
 	return fieldM, nil
-}
-
-// GetSafeTables escapes the golang keywords from sql tables.
-func GetSafeTables(tables []*parser.Table) []*parser.Table {
-	var list []*parser.Table
-	for _, t := range tables {
-		table := GetSafeTable(t)
-		list = append(list, table)
-	}
-
-	return list
-}
-
-// GetSafeTable escapes the golang keywords from sql table.
-func GetSafeTable(table *parser.Table) *parser.Table {
-	table.Name = su.EscapeGolangKeyword(table.Name)
-	for _, c := range table.Columns {
-		c.Name = su.EscapeGolangKeyword(c.Name)
-	}
-
-	for _, e := range table.Constraints {
-		var uniqueKeys, primaryKeys []string
-		for _, u := range e.ColumnUniqueKey {
-			uniqueKeys = append(uniqueKeys, su.EscapeGolangKeyword(u))
-		}
-		for _, p := range e.ColumnPrimaryKey {
-			primaryKeys = append(primaryKeys, su.EscapeGolangKeyword(p))
-		}
-		e.ColumnUniqueKey = uniqueKeys
-		e.ColumnPrimaryKey = primaryKeys
-	}
-	return table
 }
